@@ -29,4 +29,6 @@
 
         ]]>
     </string>
+    <string name="err_permission_not_granted">The Camera permission is denied!</string>
+
 </resources>
