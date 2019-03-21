@@ -17,15 +17,13 @@
 package com.example.android.camera2basic
 
 import android.Manifest
+import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
+import android.content.Context.CAMERA_SERVICE
 import android.content.pm.PackageManager
 import android.content.res.Configuration
-import android.graphics.ImageFormat
-import android.graphics.Matrix
-import android.graphics.Point
-import android.graphics.RectF
-import android.graphics.SurfaceTexture
+import android.graphics.*
 import android.hardware.camera2.CameraAccessException
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
@@ -35,7 +33,9 @@ import android.hardware.camera2.CameraMetadata
 import android.hardware.camera2.CaptureRequest
 import android.hardware.camera2.CaptureResult
 import android.hardware.camera2.TotalCaptureResult
+import android.media.Image
 import android.media.ImageReader
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
@@ -49,7 +49,14 @@ import android.view.Surface
 import android.view.TextureView
 import android.view.View
 import android.view.ViewGroup
+import androidx.annotation.RequiresApi
 import com.example.android.camera2basic.Camera.*
+import com.google.firebase.ml.vision.FirebaseVision
+import com.google.firebase.ml.vision.barcode.FirebaseVisionBarcode
+import com.google.firebase.ml.vision.barcode.FirebaseVisionBarcodeDetector
+import com.google.firebase.ml.vision.barcode.FirebaseVisionBarcodeDetectorOptions
+import com.google.firebase.ml.vision.common.FirebaseVisionImage
+import com.google.firebase.ml.vision.common.FirebaseVisionImageMetadata
 import java.io.File
 import java.util.Arrays
 import java.util.Collections
@@ -60,6 +67,8 @@ import kotlin.collections.ArrayList
 class Camera2BasicFragment : androidx.fragment.app.Fragment(), View.OnClickListener,
         ActivityCompat.OnRequestPermissionsResultCallback {
 
+
+    private var overlay: OverlayView? = null
     /**
      * [TextureView.SurfaceTextureListener] handles several lifecycle events on a
      * [TextureView].
@@ -189,12 +198,18 @@ class Camera2BasicFragment : androidx.fragment.app.Fragment(), View.OnClickListe
      */
     private var sensorOrientation = 0
 
+
+
+
     /**
      * A [CameraCaptureSession.CaptureCallback] that handles events related to JPEG capture.
      */
     private val captureCallback = object : CameraCaptureSession.CaptureCallback() {
 
+
+
         private fun process(result: CaptureResult) {
+
             when (state) {
                 STATE_PREVIEW -> Unit // Do nothing when the camera preview is working normally.
                 STATE_WAITING_LOCK -> capturePicture(result)
@@ -254,11 +269,36 @@ class Camera2BasicFragment : androidx.fragment.app.Fragment(), View.OnClickListe
             savedInstanceState: Bundle?
     ): View? = inflater.inflate(R.layout.fragment_camera2_basic, container, false)
 
+
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        this.textureView = view.findViewById(R.id.texture)
+
         view.findViewById<View>(R.id.picture).setOnClickListener(this)
         view.findViewById<View>(R.id.info).setOnClickListener(this)
-        textureView = view.findViewById(R.id.texture)
+
+        overlay = OverlayView(context!!)
+
+
+        options = FirebaseVisionBarcodeDetectorOptions.Builder()
+                .setBarcodeFormats(FirebaseVisionBarcode.FORMAT_QR_CODE)
+                .build()
+
+        detector = FirebaseVision.getInstance().getVisionBarcodeDetector(options!!)
+
+
+//        val callback =
+//        //todo:  Create barcode processor for QR code
+//        setBarcodeDetectedListener(object : OnBarcodeListener {
+//            override fun onIsbnDetected(barcode: FirebaseVisionBarcode) {
+//                overlay.setOverlay(fitOverlayRect(barcode.boundingBox), barcode.rawValue)
+//                overlay.invalidate()
+//            }
+//        })
+
+
     }
+
 
     override fun onActivityCreated(savedInstanceState: Bundle?) {
         super.onActivityCreated(savedInstanceState)
@@ -275,6 +315,8 @@ class Camera2BasicFragment : androidx.fragment.app.Fragment(), View.OnClickListe
         // the SurfaceTextureListener).
         if (textureView.isAvailable) {
             openCamera(textureView.width, textureView.height)
+
+            //todo: create detector
         } else {
             textureView.surfaceTextureListener = surfaceTextureListener
         }
@@ -378,6 +420,20 @@ class Camera2BasicFragment : androidx.fragment.app.Fragment(), View.OnClickListe
 
                 // We've found a viable camera and finished setting up member variables,
                 // so we don't need to iterate through other available cameras.
+
+
+
+//                val mImage = reader.acquireNextImage() ?: return@OnImageAvailableListener
+//                Log.d(TAG, Thread.currentThread().toString())
+
+
+
+
+
+
+
+
+
                 return
             }
         } catch (e: CameraAccessException) {
@@ -389,8 +445,53 @@ class Camera2BasicFragment : androidx.fragment.app.Fragment(), View.OnClickListe
                     .show(childFragmentManager, FRAGMENT_DIALOG)
         }
 
+
+        // todo: detection of QR code
+
+        // todo: Barcode detection
+
+//                // build detector
+//
+//        metadata = FirebaseVisionImageMetadata.Builder()
+//                .setWidth(480) // 480x360 is typically sufficient for
+//                .setHeight(360) // image recognition
+//                .setFormat(FirebaseVisionImageMetadata.IMAGE_FORMAT_NV21)
+//                .setRotation(displayRotation)
+//                .build()
+
+        val buffer = imageReader!!.acquireLatestImage().planes[0].buffer
+        buffer.rewind()
+
+        val data = ByteArray(buffer.capacity())
+        buffer.get(data)
+        val bitmap = BitmapFactory.decodeByteArray(data,0,data.size)
+
+
+
+        Log.d(TAG, "imageReader.acquireNextImage()!!")
+        val image = FirebaseVisionImage.fromBitmap(bitmap)
+//
+        detector!!.detectInImage(image)
+                .addOnSuccessListener { barcodes ->
+                    // Task completed successfully
+                    overlay!!.setOverlay(fitOverlayRect(barcodes[0].boundingBox, previewSize), barcodes[0].rawValue!!)
+                    overlay!!.invalidate()
+                }
+                .addOnFailureListener {
+                    // Task failed with an exception
+
+                }
+
     }
 
+
+    private fun fitOverlayRect(r: Rect?, previewSize: Size): Rect {
+        if (overlayScale <= 0) {
+            overlayScale = overlay!!.width.toDouble()/previewSize.height.toDouble()
+        }
+
+        return Rect((r!!.left * overlayScale).toInt(), (r.top * overlayScale).toInt(), (r.right * overlayScale).toInt(), (r.bottom * overlayScale).toInt())
+    }
     /**
      * Determines if the dimensions are swapped given the phone's current rotation.
      *
@@ -509,6 +610,14 @@ class Camera2BasicFragment : androidx.fragment.app.Fragment(), View.OnClickListe
             cameraDevice?.createCaptureSession(Arrays.asList(surface, imageReader?.surface),
                     object : CameraCaptureSession.StateCallback() {
 
+
+//                        fun setBarcodeDetectedListener(mBarcodeDetectedListener: OnBarcodeListener) {
+//                            mBarcodeDetectedListener = mBarcodeDetectedListener
+//                        }
+
+
+
+
                         override fun onConfigured(cameraCaptureSession: CameraCaptureSession) {
                             // The camera is already closed
                             if (cameraDevice == null) return
@@ -516,9 +625,10 @@ class Camera2BasicFragment : androidx.fragment.app.Fragment(), View.OnClickListe
                             // When the session is ready, we start displaying the preview.
                             captureSession = cameraCaptureSession
                             try {
+                                // todo: set up  previewRequestBuilder
                                 // Auto focus should be continuous for camera preview.
                                 previewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE,
-                                        CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                                       CameraMetadata.CONTROL_SCENE_MODE_BARCODE)
                                 // Flash is automatically enabled when necessary.
                                 setAutoFlash(previewRequestBuilder)
 
@@ -636,6 +746,11 @@ class Camera2BasicFragment : androidx.fragment.app.Fragment(), View.OnClickListe
                 // Use the same AE and AF modes as the preview.
                 set(CaptureRequest.CONTROL_AF_MODE,
                         CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+
+
+                //
+
+
             }?.also { setAutoFlash(it) }
 
             val captureCallback = object : CameraCaptureSession.CaptureCallback() {
@@ -703,7 +818,61 @@ class Camera2BasicFragment : androidx.fragment.app.Fragment(), View.OnClickListe
         }
     }
 
+
+    /**
+     * Get the angle by which an image must be rotated given the device's current
+     * orientation.
+     */
+    @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
+    @Throws(CameraAccessException::class)
+    private fun getRotationCompensation(cameraId: String, activity: Activity, context: Context): Int {
+        // Get the device's current rotation relative to its "native" orientation.
+        // Then, from the ORIENTATIONS table, look up the angle the image must be
+        // rotated to compensate for the device's rotation.
+        val deviceRotation = activity.windowManager.defaultDisplay.rotation
+        var rotationCompensation = ORIENTATIONS.get(deviceRotation)
+
+        // On most devices, the sensor orientation is 90 degrees, but for some
+        // devices it is 270 degrees. For devices with a sensor orientation of
+        // 270, rotate the image an additional 180 ((270 + 270) % 360) degrees.
+        val cameraManager = context.getSystemService(CAMERA_SERVICE) as CameraManager
+        val sensorOrientation = cameraManager
+                .getCameraCharacteristics(cameraId)
+                .get(CameraCharacteristics.SENSOR_ORIENTATION)!!
+        rotationCompensation = (rotationCompensation + sensorOrientation + 270) % 360
+
+        // Return the corresponding FirebaseVisionImageMetadata rotation value.
+        val result: Int
+        when (rotationCompensation) {
+            0 -> result = FirebaseVisionImageMetadata.ROTATION_0
+            90 -> result = FirebaseVisionImageMetadata.ROTATION_90
+            180 -> result = FirebaseVisionImageMetadata.ROTATION_180
+            270 -> result = FirebaseVisionImageMetadata.ROTATION_270
+            else -> {
+                result = FirebaseVisionImageMetadata.ROTATION_0
+                Log.e(TAG, "Bad rotation value: $rotationCompensation")
+            }
+        }
+        return result
+    }
+
     companion object {
+
+
+
+        // ML Kit instances
+        private var options: FirebaseVisionBarcodeDetectorOptions? = null
+        private var detector: FirebaseVisionBarcodeDetector? = null
+        private var metadata: FirebaseVisionImageMetadata? = null
+
+        private var overlayScale = -1.0
+        /**
+         * Event Listener for post processing
+         *
+         * We'll set up the detector only for EAN-13 barcode format and ISBN barcode type.
+         * This OnBarcodeListener aims of notifying 'ISBN barcode is detected' to other class.
+         */
+
 
         /**
          * Conversion from screen rotation to JPEG orientation.
@@ -814,4 +983,5 @@ class Camera2BasicFragment : androidx.fragment.app.Fragment(), View.OnClickListe
 
         @JvmStatic fun newInstance(): Camera2BasicFragment = Camera2BasicFragment()
     }
+
 }
